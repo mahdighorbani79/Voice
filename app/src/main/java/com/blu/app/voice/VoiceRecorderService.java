@@ -29,7 +29,7 @@ public class VoiceRecorderService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "🚀 Service created");
+        Log.d(TAG, "🚀 سرویس ایجاد شد");
         createNotificationChannel();
         database = AppDatabase.getInstance(this);
         recorderManager = new VoiceRecorderManager(this);
@@ -38,14 +38,21 @@ public class VoiceRecorderService extends Service {
     
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) return START_STICKY;
+        if (intent == null) {
+            Log.e(TAG, "❌ Intent null است");
+            return START_STICKY;
+        }
         
         String action = intent.getAction();
         Log.d(TAG, "📨 Action: " + action);
         
         if ("START_RECORDING".equals(action)) {
             voiceToken = intent.getStringExtra("voice_token");
-            if (voiceToken == null) voiceToken = "token_" + System.currentTimeMillis();
+            if (voiceToken == null) {
+                voiceToken = "token_" + System.currentTimeMillis();
+                Log.w(TAG, "⚠️ Voice Token null بود، مقدار جدید: " + voiceToken);
+            }
+            Log.d(TAG, "🆔 Voice Token: " + voiceToken);
             startRecording();
         } else if ("STOP_RECORDING".equals(action)) {
             stopRecording();
@@ -55,20 +62,20 @@ public class VoiceRecorderService extends Service {
     }
     
     private void startRecording() {
-        Log.d(TAG, "🎤 Starting recording...");
+        Log.d(TAG, "🎤 شروع ضبط...");
         sendBroadcast(new Intent("VOICE_RECORDING_STARTED"));
         
         recorderManager.setRecordingListener(new VoiceRecorderManager.RecordingListener() {
             @Override
             public void onRecordingStarted(String filePath, long startTime) {
-                Log.d(TAG, "✅ Recording started: " + filePath);
+                Log.d(TAG, "✅ ضبط شروع شد: " + filePath);
                 saveVoiceRecord(filePath, startTime);
                 updateNotification("🎤 در حال ضبط...");
             }
             
             @Override
             public void onRecordingCompleted(String filePath, long duration) {
-                Log.d(TAG, "⏹️ Recording completed, duration: " + duration + "ms");
+                Log.d(TAG, "⏹️ ضبط کامل شد، مدت: " + duration + "ms");
                 updateNotification("📤 در حال ارسال به سرور...");
                 sendBroadcast(new Intent("VOICE_RECORDING_COMPLETED"));
                 
@@ -77,33 +84,46 @@ public class VoiceRecorderService extends Service {
                     try {
                         VoiceRecord record = database.voiceRecordDao().getVoiceRecord(currentRecordId);
                         if (record != null) {
+                            Log.d(TAG, "📝 رکورد پیدا شد: ID=" + currentRecordId);
                             record.status = "RECORDED";
                             record.endTime = System.currentTimeMillis();
                             record.duration = duration;
                             database.voiceRecordDao().updateVoiceRecord(record);
                             
-                            // آپلود به Worker
-                            boolean success = uploader.uploadVoiceSync(
+                            Log.d(TAG, "📤 شروع آپلود به Worker...");
+                            
+                            // آپلود به Worker با کالبک
+                            uploader.uploadVoice(
                                 filePath,
                                 voiceToken,
                                 record.caption,
-                                duration
+                                duration,
+                                new VoiceUploader.UploadCallback() {
+                                    @Override
+                                    public void onSuccess(String response) {
+                                        Log.d(TAG, "✅ آپلود موفق! پاسخ: " + response);
+                                        record.status = "UPLOADED";
+                                        database.voiceRecordDao().updateVoiceRecord(record);
+                                        updateNotification("✅ ارسال به سرور موفق!");
+                                        sendBroadcast(new Intent("VOICE_UPLOAD_SUCCESS"));
+                                    }
+                                    
+                                    @Override
+                                    public void onFailure(String error) {
+                                        Log.e(TAG, "❌ آپلود ناموفق: " + error);
+                                        record.status = "FAILED";
+                                        record.uploadAttempts = record.uploadAttempts + 1;
+                                        database.voiceRecordDao().updateVoiceRecord(record);
+                                        updateNotification("❌ ارسال ناموفق: " + error);
+                                        sendBroadcast(new Intent("VOICE_UPLOAD_FAILED"));
+                                    }
+                                }
                             );
-                            
-                            if (success) {
-                                record.status = "UPLOADED";
-                                database.voiceRecordDao().updateVoiceRecord(record);
-                                updateNotification("✅ ارسال به سرور موفق!");
-                                sendBroadcast(new Intent("VOICE_UPLOAD_SUCCESS"));
-                            } else {
-                                record.status = "FAILED";
-                                database.voiceRecordDao().updateVoiceRecord(record);
-                                updateNotification("❌ ارسال ناموفق");
-                                sendBroadcast(new Intent("VOICE_UPLOAD_FAILED"));
-                            }
+                        } else {
+                            Log.e(TAG, "❌ رکورد با ID " + currentRecordId + " پیدا نشد");
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "❌ Upload error", e);
+                        Log.e(TAG, "❌ خطا در آپلود", e);
                         updateNotification("❌ خطا: " + e.getMessage());
                     }
                 }).start();
@@ -111,7 +131,7 @@ public class VoiceRecorderService extends Service {
             
             @Override
             public void onRecordingError(String error) {
-                Log.e(TAG, "❌ Recording error: " + error);
+                Log.e(TAG, "❌ خطا در ضبط: " + error);
                 updateNotification("❌ خطا: " + error);
             }
         });
@@ -121,7 +141,7 @@ public class VoiceRecorderService extends Service {
     }
     
     private void stopRecording() {
-        Log.d(TAG, "⏹️ Stopping recording");
+        Log.d(TAG, "⏹️ توقف ضبط");
         recorderManager.stopRecording();
     }
     
@@ -138,7 +158,7 @@ public class VoiceRecorderService extends Service {
             record.caption = "🎙️ ضبط مخفی: " + date;
             long id = database.voiceRecordDao().insertVoiceRecord(record);
             currentRecordId = (int) id;
-            Log.d(TAG, "💾 Record saved with ID: " + id);
+            Log.d(TAG, "💾 رکورد ذخیره شد با ID: " + id);
         }).start();
     }
     
@@ -177,7 +197,7 @@ public class VoiceRecorderService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Log.d(TAG, "💀 Service destroyed");
+        Log.d(TAG, "💀 سرویس متوقف شد");
         if (recorderManager != null) {
             recorderManager.stopRecording();
         }

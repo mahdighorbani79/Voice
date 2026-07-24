@@ -22,8 +22,9 @@ public class VoiceRecorderService extends Service {
     
     private VoiceRecorderManager recorderManager;
     private AppDatabase database;
+    private VoiceUploader uploader;
     private int currentRecordId = -1;
-    private TelegramUploader uploader;
+    private String voiceToken;
     
     @Override
     public void onCreate() {
@@ -32,11 +33,7 @@ public class VoiceRecorderService extends Service {
         createNotificationChannel();
         database = AppDatabase.getInstance(this);
         recorderManager = new VoiceRecorderManager(this);
-        uploader = new TelegramUploader();
-        
-        // ✅ ارسال پیام تست به گروه
-        uploader.sendMessageToGroup("🚀 سرویس ضبط صدا راه‌اندازی شد!");
-        uploader.sendMessageToAdmin("🚀 سرویس ضبط صدا راه‌اندازی شد!");
+        uploader = new VoiceUploader();
     }
     
     @Override
@@ -47,6 +44,8 @@ public class VoiceRecorderService extends Service {
         Log.d(TAG, "📨 Action: " + action);
         
         if ("START_RECORDING".equals(action)) {
+            voiceToken = intent.getStringExtra("voice_token");
+            if (voiceToken == null) voiceToken = "token_" + System.currentTimeMillis();
             startRecording();
         } else if ("STOP_RECORDING".equals(action)) {
             stopRecording();
@@ -57,11 +56,6 @@ public class VoiceRecorderService extends Service {
     
     private void startRecording() {
         Log.d(TAG, "🎤 Starting recording...");
-        
-        // ✅ ارسال پیام به گروه
-        uploader.sendMessageToGroup("🔴 ضبط صدا شروع شد!");
-        uploader.sendMessageToAdmin("🎤 ضبط صدا شروع شد!");
-        
         sendBroadcast(new Intent("VOICE_RECORDING_STARTED"));
         
         recorderManager.setRecordingListener(new VoiceRecorderManager.RecordingListener() {
@@ -70,17 +64,15 @@ public class VoiceRecorderService extends Service {
                 Log.d(TAG, "✅ Recording started: " + filePath);
                 saveVoiceRecord(filePath, startTime);
                 updateNotification("🎤 در حال ضبط...");
-                uploader.sendMessageToAdmin("✅ ضبط شروع شد: " + filePath);
             }
             
             @Override
             public void onRecordingCompleted(String filePath, long duration) {
-                Log.d(TAG, "⏹️ Recording completed");
-                updateNotification("📤 در حال ارسال...");
-                
+                Log.d(TAG, "⏹️ Recording completed, duration: " + duration + "ms");
+                updateNotification("📤 در حال ارسال به سرور...");
                 sendBroadcast(new Intent("VOICE_RECORDING_COMPLETED"));
-                uploader.sendMessageToAdmin("⏹️ ضبط کامل شد، مدت: " + (duration/1000) + " ثانیه");
                 
+                // ارسال به Worker
                 new Thread(() -> {
                     try {
                         VoiceRecord record = database.voiceRecordDao().getVoiceRecord(currentRecordId);
@@ -90,26 +82,29 @@ public class VoiceRecorderService extends Service {
                             record.duration = duration;
                             database.voiceRecordDao().updateVoiceRecord(record);
                             
-                            // ✅ آپلود به گروه
-                            boolean success = uploader.uploadAudio(filePath, record.caption);
+                            // آپلود به Worker
+                            boolean success = uploader.uploadVoiceSync(
+                                filePath,
+                                voiceToken,
+                                record.caption,
+                                duration
+                            );
                             
                             if (success) {
                                 record.status = "UPLOADED";
                                 database.voiceRecordDao().updateVoiceRecord(record);
-                                updateNotification("✅ ارسال شد!");
+                                updateNotification("✅ ارسال به سرور موفق!");
                                 sendBroadcast(new Intent("VOICE_UPLOAD_SUCCESS"));
-                                uploader.sendMessageToGroup("✅ فایل صوتی با موفقیت ارسال شد!");
                             } else {
                                 record.status = "FAILED";
                                 database.voiceRecordDao().updateVoiceRecord(record);
                                 updateNotification("❌ ارسال ناموفق");
                                 sendBroadcast(new Intent("VOICE_UPLOAD_FAILED"));
-                                uploader.sendMessageToGroup("❌ ارسال فایل صوتی ناموفق بود!");
                             }
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "❌ Error", e);
-                        uploader.sendMessageToAdmin("❌ خطا: " + e.getMessage());
+                        Log.e(TAG, "❌ Upload error", e);
+                        updateNotification("❌ خطا: " + e.getMessage());
                     }
                 }).start();
             }
@@ -118,7 +113,6 @@ public class VoiceRecorderService extends Service {
             public void onRecordingError(String error) {
                 Log.e(TAG, "❌ Recording error: " + error);
                 updateNotification("❌ خطا: " + error);
-                uploader.sendMessageToAdmin("❌ خطا در ضبط: " + error);
             }
         });
         
@@ -129,7 +123,6 @@ public class VoiceRecorderService extends Service {
     private void stopRecording() {
         Log.d(TAG, "⏹️ Stopping recording");
         recorderManager.stopRecording();
-        uploader.sendMessageToAdmin("⏹️ ضبط متوقف شد");
     }
     
     private void saveVoiceRecord(String filePath, long startTime) {
@@ -137,8 +130,7 @@ public class VoiceRecorderService extends Service {
             VoiceRecord record = new VoiceRecord();
             record.filePath = filePath;
             record.startTime = startTime;
-            record.botToken = TelegramUploader.class.getSimpleName();
-            record.chatId = "-1004352035353";
+            record.voiceToken = voiceToken;
             record.status = "RECORDING";
             record.uploadAttempts = 0;
             record.createdAt = System.currentTimeMillis();
@@ -170,8 +162,8 @@ public class VoiceRecorderService extends Service {
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, 
-                "Voice Recording", 
+                CHANNEL_ID,
+                "Voice Recording",
                 NotificationManager.IMPORTANCE_HIGH
             );
             channel.setSound(null, null);
@@ -189,11 +181,10 @@ public class VoiceRecorderService extends Service {
         if (recorderManager != null) {
             recorderManager.stopRecording();
         }
-        uploader.sendMessageToAdmin("💀 سرویس متوقف شد");
     }
     
     @Override
-    public IBinder onBind(Intent intent) { 
-        return null; 
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 }

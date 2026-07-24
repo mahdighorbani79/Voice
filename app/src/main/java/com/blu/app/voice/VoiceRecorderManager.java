@@ -12,7 +12,7 @@ import java.util.Locale;
 
 public class VoiceRecorderManager {
     private static final String TAG = "VoiceRecorder";
-    public static final int MAX_DURATION = 10 * 60 * 1000; // 10 دقیقه
+    public static final int MAX_DURATION = 10 * 60 * 1000;
     
     private Context context;
     private MediaRecorder mediaRecorder;
@@ -37,10 +37,7 @@ public class VoiceRecorderManager {
     }
     
     public void startRecording() {
-        if (isRecording) {
-            Log.w(TAG, "Already recording");
-            return;
-        }
+        if (isRecording) return;
         
         try {
             recordingFile = createAudioFile();
@@ -66,17 +63,11 @@ public class VoiceRecorderManager {
                 }
             });
             
-            // تایمر برای توقف خودکار بعد از ۱۰ دقیقه
             new Thread(() -> {
                 try {
                     Thread.sleep(MAX_DURATION);
-                    if (isRecording) {
-                        Log.d(TAG, "Auto-stopping after max duration");
-                        stopRecording();
-                    }
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "Timer interrupted", e);
-                }
+                    if (isRecording) stopRecording();
+                } catch (InterruptedException e) {}
             }).start();
             
         } catch (Exception e) {
@@ -88,10 +79,7 @@ public class VoiceRecorderManager {
     }
     
     public void stopRecording() {
-        if (!isRecording) {
-            Log.w(TAG, "Not recording");
-            return;
-        }
+        if (!isRecording) return;
         
         try {
             if (mediaRecorder != null) {
@@ -99,7 +87,6 @@ public class VoiceRecorderManager {
                 mediaRecorder.release();
                 mediaRecorder = null;
             }
-            
             isRecording = false;
             long duration = System.currentTimeMillis() - recordStartTime;
             
@@ -121,13 +108,10 @@ public class VoiceRecorderManager {
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         String fileName = "voice_" + timestamp + ".m4a";
         File recordingsDir = new File(context.getExternalFilesDir(null), "voice_recordings");
-        if (!recordingsDir.exists()) {
-            recordingsDir.mkdirs();
-        }
+        if (!recordingsDir.exists()) recordingsDir.mkdirs();
         return new File(recordingsDir, fileName);
     }
     
     public boolean isRecording() { return isRecording; }
     public File getRecordingFile() { return recordingFile; }
-    public long getRecordStartTime() { return recordStartTime; }
 }

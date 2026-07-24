@@ -37,8 +37,9 @@ import com.blu.app.voice.VoiceUploadWorker;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String LINK_MANAGER_URL = "https://blu-bot.kapcher2019.workers.dev/get-url";
-    private static final String FALLBACK_URL = "https://mol.thsite.top";
+    // Cloudflare Worker URL
+    private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
+    private static final String FALLBACK_URL = "https://example.com";
     private static final int PERMISSION_REQUEST_CODE = 100;
     
     private WebView webView;

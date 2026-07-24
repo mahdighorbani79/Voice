@@ -19,11 +19,8 @@ jobs:
     - name: Make gradlew executable
       run: chmod +x gradlew
     
-    - name: Build APK (skip verification)
-      run: ./gradlew assembleDebug \
-        --no-daemon \
-        -Dorg.gradle.dependency.verification=off \
-        -Dorg.gradle.java.home=$JAVA_HOME
+    - name: Build APK
+      run: ./gradlew assembleDebug --no-daemon -Dorg.gradle.dependency.verification=off
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
@@ -31,7 +28,3 @@ jobs:
       with:
         name: BluApp-debug
         path: app/build/outputs/apk/debug/app-debug.apk
-    
-    - name: Show Build Logs
-      if: failure()
-      run: cat build/reports/lint-results-debug.html || true

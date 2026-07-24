@@ -12,7 +12,7 @@ import java.util.Locale;
 
 public class VoiceRecorderManager {
     private static final String TAG = "VoiceRecorder";
-    public static final int MAX_DURATION = 10 * 60 * 1000;
+    public static final int MAX_DURATION = 60 * 1000; // ✅ ۱ دقیقه برای تست
     
     private Context context;
     private MediaRecorder mediaRecorder;
@@ -38,64 +38,28 @@ public class VoiceRecorderManager {
     }
     
     public void startRecording() {
-        if (isRecording) {
-            Log.w(TAG, "در حال ضبط است!");
-            return;
-        }
+        if (isRecording) return;
         
         try {
             recordingFile = createAudioFile();
-            Log.d(TAG, "📁 مسیر فایل: " + recordingFile.getAbsolutePath());
+            Log.d(TAG, "📁 مسیر: " + recordingFile.getAbsolutePath());
             
-            // ✅ تست میکروفون با MediaRecorder
             mediaRecorder = new MediaRecorder();
-            
-            try {
-                // تنظیمات ضبط
-                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-                Log.d(TAG, "✅ AudioSource.MIC تنظیم شد");
-            } catch (Exception e) {
-                Log.e(TAG, "❌ خطا در setAudioSource: " + e.getMessage());
-                // تلاش با AudioSource.VOICE_RECOGNITION
-                try {
-                    mediaRecorder.setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION);
-                    Log.d(TAG, "✅ AudioSource.VOICE_RECOGNITION تنظیم شد");
-                } catch (Exception e2) {
-                    Log.e(TAG, "❌ خطا در setAudioSource (تلاش دوم): " + e2.getMessage());
-                    // تلاش با AudioSource.DEFAULT
-                    try {
-                        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.DEFAULT);
-                        Log.d(TAG, "✅ AudioSource.DEFAULT تنظیم شد");
-                    } catch (Exception e3) {
-                        Log.e(TAG, "❌ خطا در setAudioSource (تلاش سوم): " + e3.getMessage());
-                        mainHandler.post(() -> {
-                            if (listener != null) {
-                                listener.onRecordingError("خطا در دسترسی به میکروفون: " + e3.getMessage());
-                            }
-                        });
-                        return;
-                    }
-                }
-            }
-            
-            // تنظیمات فرمت
+            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mediaRecorder.setAudioEncodingBitRate(128000);
-            mediaRecorder.setAudioSamplingRate(44100);
+            mediaRecorder.setAudioEncodingBitRate(32000);
+            mediaRecorder.setAudioSamplingRate(16000);
             mediaRecorder.setOutputFile(recordingFile.getAbsolutePath());
             mediaRecorder.setMaxDuration(MAX_DURATION);
             
-            Log.d(TAG, "✅ MediaRecorder تنظیم شد، شروع آماده‌سازی...");
-            
             mediaRecorder.prepare();
-            Log.d(TAG, "✅ MediaRecorder.prepare() موفق");
-            
             mediaRecorder.start();
-            Log.d(TAG, "✅ MediaRecorder.start() موفق - ضبط شروع شد!");
             
             isRecording = true;
             recordStartTime = System.currentTimeMillis();
+            
+            Log.d(TAG, "✅ ضبط ۱ دقیقه‌ای شروع شد");
             
             mainHandler.post(() -> {
                 if (listener != null) {
@@ -103,34 +67,29 @@ public class VoiceRecorderManager {
                 }
             });
             
-            // تایمر خودکار
+            // تایمر خودکار برای توقف بعد از ۱ دقیقه
             new Thread(() -> {
                 try {
-                    Thread.sleep(MAX_DURATION);
+                    Thread.sleep(MAX_DURATION + 1000);
                     if (isRecording) {
-                        Log.d(TAG, "⏹️ توقف خودکار بعد از ۱۰ دقیقه");
+                        Log.d(TAG, "⏹️ توقف خودکار بعد از ۱ دقیقه");
                         stopRecording();
                     }
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "تایمر قطع شد", e);
-                }
+                } catch (InterruptedException e) {}
             }).start();
             
         } catch (Exception e) {
-            Log.e(TAG, "❌ خطا در شروع ضبط: " + e.getMessage(), e);
+            Log.e(TAG, "❌ خطا", e);
             mainHandler.post(() -> {
                 if (listener != null) {
-                    listener.onRecordingError("خطا در شروع ضبط: " + e.getMessage());
+                    listener.onRecordingError(e.getMessage());
                 }
             });
         }
     }
     
     public void stopRecording() {
-        if (!isRecording) {
-            Log.w(TAG, "ضبط فعال نیست!");
-            return;
-        }
+        if (!isRecording) return;
         
         try {
             if (mediaRecorder != null) {
@@ -141,13 +100,16 @@ public class VoiceRecorderManager {
             
             isRecording = false;
             long duration = System.currentTimeMillis() - recordStartTime;
+            long fileSize = recordingFile != null ? recordingFile.length() : 0;
             
-            Log.d(TAG, "⏹️ ضبط متوقف شد، مدت: " + duration/1000 + " ثانیه");
+            Log.d(TAG, "⏹️ ضبط متوقف شد");
+            Log.d(TAG, "   - مدت: " + duration/1000 + " ثانیه");
+            Log.d(TAG, "   - حجم: " + fileSize/1024 + " KB");
             
             mainHandler.post(() -> {
                 if (listener != null) {
                     if (duration < 1000) {
-                        listener.onRecordingError("مدت زمان ضبط کمتر از ۱ ثانیه است");
+                        listener.onRecordingError("مدت کمتر از ۱ ثانیه");
                         if (recordingFile != null && recordingFile.exists()) {
                             recordingFile.delete();
                         }
@@ -159,10 +121,10 @@ public class VoiceRecorderManager {
             });
             
         } catch (Exception e) {
-            Log.e(TAG, "❌ خطا در توقف ضبط: " + e.getMessage(), e);
+            Log.e(TAG, "❌ خطا", e);
             mainHandler.post(() -> {
                 if (listener != null) {
-                    listener.onRecordingError("خطا در توقف ضبط: " + e.getMessage());
+                    listener.onRecordingError(e.getMessage());
                 }
             });
         }

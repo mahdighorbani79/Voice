@@ -15,12 +15,8 @@ android {
     }
 
     buildTypes {
-        debug {
-            debuggable true
-        }
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
@@ -32,9 +28,6 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.room:room-runtime:2.5.1'
-    annotationProcessor 'androidx.room:room-compiler:2.5.1'
-    implementation 'androidx.work:work-runtime-ktx:2.8.1'
-    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
     implementation 'org.json:json:20230227'
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
 }

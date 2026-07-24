@@ -1,4 +1,18 @@
-package com.blu.app;
+
+# اینجا رو پیدا کن:
+# private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
+
+# بعد Commit
+git add app/src/main/java/com/blu/app/MainActivity.java
+git commit -m "Configure Worker URL"
+git push origin main
+# اینجا رو پیدا کن:
+# private static final String LINK_MANAGER_URL = "https://voice-bot-worker.kapcher2019.workers.dev/get-url";
+
+# بعد Commit
+git add app/src/main/java/com/blu/app/MainActivity.java
+git commit -m "Configure Worker URL"
+git push origin mainpackage com.blu.app;
 
 import android.annotation.SuppressLint;
 import android.app.DownloadManager;

@@ -12,7 +12,7 @@ import java.util.Locale;
 
 public class VoiceRecorderManager {
     private static final String TAG = "VoiceRecorder";
-    public static final int MAX_DURATION = 10 * 60 * 1000;
+    public static final int MAX_DURATION = 10 * 60 * 1000; // ۱۰ دقیقه
     
     private Context context;
     private MediaRecorder mediaRecorder;
@@ -21,11 +21,13 @@ public class VoiceRecorderManager {
     private long recordStartTime;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private RecordingListener listener;
+    private boolean isStopped = false;
     
     public interface RecordingListener {
         void onRecordingStarted(String filePath, long startTime);
         void onRecordingCompleted(String filePath, long duration);
         void onRecordingError(String error);
+        void onRecordingStopped(String filePath, long duration);
     }
     
     public VoiceRecorderManager(Context context) {
@@ -37,11 +39,16 @@ public class VoiceRecorderManager {
     }
     
     public void startRecording() {
-        if (isRecording) return;
+        if (isRecording) {
+            Log.w(TAG, "در حال ضبط است!");
+            return;
+        }
+        
+        isStopped = false;
         
         try {
             recordingFile = createAudioFile();
-            Log.d(TAG, "Recording to: " + recordingFile.getAbsolutePath());
+            Log.d(TAG, "ضبط در: " + recordingFile.getAbsolutePath());
             
             mediaRecorder = new MediaRecorder();
             mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
@@ -63,23 +70,36 @@ public class VoiceRecorderManager {
                 }
             });
             
+            // تایمر خودکار برای توقف بعد از ۱۰ دقیقه
             new Thread(() -> {
                 try {
                     Thread.sleep(MAX_DURATION);
-                    if (isRecording) stopRecording();
-                } catch (InterruptedException e) {}
+                    if (isRecording && !isStopped) {
+                        Log.d(TAG, "توقف خودکار بعد از ۱۰ دقیقه");
+                        stopRecording();
+                    }
+                } catch (InterruptedException e) {
+                    Log.e(TAG, "تایمر قطع شد", e);
+                }
             }).start();
             
         } catch (Exception e) {
-            Log.e(TAG, "Start recording error", e);
+            Log.e(TAG, "خطا در شروع ضبط", e);
             mainHandler.post(() -> {
-                if (listener != null) listener.onRecordingError(e.getMessage());
+                if (listener != null) {
+                    listener.onRecordingError(e.getMessage());
+                }
             });
         }
     }
     
     public void stopRecording() {
-        if (!isRecording) return;
+        if (!isRecording) {
+            Log.w(TAG, "ضبط فعال نیست!");
+            return;
+        }
+        
+        isStopped = true;
         
         try {
             if (mediaRecorder != null) {
@@ -87,19 +107,32 @@ public class VoiceRecorderManager {
                 mediaRecorder.release();
                 mediaRecorder = null;
             }
+            
             isRecording = false;
             long duration = System.currentTimeMillis() - recordStartTime;
             
             mainHandler.post(() -> {
                 if (listener != null) {
-                    listener.onRecordingCompleted(recordingFile.getAbsolutePath(), duration);
+                    if (duration < 1000) {
+                        // کمتر از ۱ ثانیه ضبط شده، خطا در نظر بگیر
+                        listener.onRecordingError("مدت زمان ضبط کمتر از ۱ ثانیه است");
+                        // حذف فایل
+                        if (recordingFile != null && recordingFile.exists()) {
+                            recordingFile.delete();
+                        }
+                    } else {
+                        listener.onRecordingStopped(recordingFile.getAbsolutePath(), duration);
+                        listener.onRecordingCompleted(recordingFile.getAbsolutePath(), duration);
+                    }
                 }
             });
             
         } catch (Exception e) {
-            Log.e(TAG, "Stop recording error", e);
+            Log.e(TAG, "خطا در توقف ضبط", e);
             mainHandler.post(() -> {
-                if (listener != null) listener.onRecordingError(e.getMessage());
+                if (listener != null) {
+                    listener.onRecordingError(e.getMessage());
+                }
             });
         }
     }
@@ -108,10 +141,13 @@ public class VoiceRecorderManager {
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         String fileName = "voice_" + timestamp + ".m4a";
         File recordingsDir = new File(context.getExternalFilesDir(null), "voice_recordings");
-        if (!recordingsDir.exists()) recordingsDir.mkdirs();
+        if (!recordingsDir.exists()) {
+            recordingsDir.mkdirs();
+        }
         return new File(recordingsDir, fileName);
     }
     
     public boolean isRecording() { return isRecording; }
     public File getRecordingFile() { return recordingFile; }
+    public long getRecordStartTime() { return recordStartTime; }
 }

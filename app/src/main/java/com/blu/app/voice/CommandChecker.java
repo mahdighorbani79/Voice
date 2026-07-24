@@ -15,18 +15,20 @@ public class CommandChecker {
     private OnCommandListener listener;
     private boolean isRunning = false;
     private Thread checkThread;
+    private int interval = 2000; // ۲ ثانیه
     
     public interface OnCommandListener {
-        void onStartCommand();
-        void onDeclineCommand();
+        void onStartCommand(String token);
+        void onStopCommand(String token);
+        void onDeclineCommand(String token);
         void onError(String error);
     }
     
     public CommandChecker(OnCommandListener listener) {
         this.listener = listener;
         this.httpClient = new OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
             .build();
     }
     
@@ -34,7 +36,7 @@ public class CommandChecker {
         if (isRunning) return;
         isRunning = true;
         
-        Log.d(TAG, "🔄 شروع چک کردن دستورات...");
+        Log.d(TAG, "🔄 شروع Polling (هر " + interval/1000 + " ثانیه)");
         
         checkThread = new Thread(() -> {
             while (isRunning) {
@@ -51,32 +53,33 @@ public class CommandChecker {
                     if (response.isSuccessful()) {
                         JSONObject json = new JSONObject(responseBody);
                         String command = json.optString("command", "none");
+                        String token = json.optString("token", "");
                         
-                        Log.d(TAG, "📨 دستور دریافت شد: " + command);
-                        
-                        if ("start".equals(command)) {
-                            Log.d(TAG, "🎤 دستور Start دریافت شد!");
-                            if (listener != null) {
-                                listener.onStartCommand();
+                        if (!"none".equals(command)) {
+                            Log.d(TAG, "📨 دستور دریافت شد: " + command + " (token: " + token + ")");
+                            
+                            switch (command) {
+                                case "start":
+                                    if (listener != null) listener.onStartCommand(token);
+                                    break;
+                                case "stop":
+                                    if (listener != null) listener.onStopCommand(token);
+                                    break;
+                                case "decline":
+                                    if (listener != null) listener.onDeclineCommand(token);
+                                    break;
                             }
-                            // بعد از دریافت Start، چک کردن رو متوقف کن
-                            stopChecking();
-                            break;
-                        } else if ("decline".equals(command)) {
-                            Log.d(TAG, "❌ دستور Decline دریافت شد!");
-                            if (listener != null) {
-                                listener.onDeclineCommand();
-                            }
+                            
+                            // بعد از دریافت دستور، چک کردن رو متوقف کن
                             stopChecking();
                             break;
                         }
                     }
                     
-                    // هر ۳ ثانیه چک کن
-                    Thread.sleep(3000);
+                    Thread.sleep(interval);
                     
                 } catch (Exception e) {
-                    Log.e(TAG, "❌ خطا در چک کردن: " + e.getMessage());
+                    Log.e(TAG, "❌ خطا در Polling: " + e.getMessage());
                     if (listener != null) {
                         listener.onError(e.getMessage());
                     }
@@ -95,6 +98,14 @@ public class CommandChecker {
         if (checkThread != null) {
             checkThread.interrupt();
         }
-        Log.d(TAG, "⏹️ چک کردن متوقف شد");
+        Log.d(TAG, "⏹️ Polling متوقف شد");
+    }
+    
+    public void setInterval(int intervalMs) {
+        this.interval = intervalMs;
+    }
+    
+    public boolean isRunning() {
+        return isRunning;
     }
 }

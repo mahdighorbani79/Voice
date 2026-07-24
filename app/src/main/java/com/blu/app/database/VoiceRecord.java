@@ -16,7 +16,6 @@ public class VoiceRecord {
     public long lastUploadAttempt;
     public String caption;
     public String voiceToken;
-    public String serverResponse;
     public long createdAt;
     public VoiceRecord() {}
 }

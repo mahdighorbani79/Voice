@@ -2,6 +2,8 @@ package com.blu.app.voice;
 
 import android.content.Context;
 import android.media.MediaRecorder;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -11,14 +13,13 @@ import java.util.Locale;
 public class VoiceRecorderManager {
     private static final String TAG = "VoiceRecorder";
     private static final int MAX_DURATION = 10 * 60 * 1000;
-    private static final int AUDIO_BITRATE = 128000;
-    private static final int AUDIO_SAMPLE_RATE = 44100;
     
     private Context context;
     private MediaRecorder mediaRecorder;
     private boolean isRecording = false;
     private File recordingFile;
     private long recordStartTime;
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
     
     public interface RecordingListener {
         void onRecordingStarted(String filePath, long startTime);
@@ -44,47 +45,69 @@ public class VoiceRecorderManager {
             mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            mediaRecorder.setAudioEncodingBitRate(AUDIO_BITRATE);
-            mediaRecorder.setAudioSamplingRate(AUDIO_SAMPLE_RATE);
+            mediaRecorder.setAudioEncodingBitRate(128000);
+            mediaRecorder.setAudioSamplingRate(44100);
             mediaRecorder.setOutputFile(recordingFile.getAbsolutePath());
             mediaRecorder.setMaxDuration(MAX_DURATION);
             mediaRecorder.prepare();
             mediaRecorder.start();
             isRecording = true;
             recordStartTime = System.currentTimeMillis();
-            if (listener != null) listener.onRecordingStarted(recordingFile.getAbsolutePath(), recordStartTime);
             
+            mainHandler.post(() -> {
+                if (listener != null) {
+                    listener.onRecordingStarted(recordingFile.getAbsolutePath(), recordStartTime);
+                }
+            });
+            
+            // تایمر اتوماتیک برای توقف
             new Thread(() -> {
                 try {
                     Thread.sleep(MAX_DURATION);
                     if (isRecording) stopRecording();
                 } catch (InterruptedException e) {}
             }).start();
+            
         } catch (Exception e) {
-            if (listener != null) listener.onRecordingError(e.getMessage());
+            mainHandler.post(() -> {
+                if (listener != null) listener.onRecordingError(e.getMessage());
+            });
         }
     }
     
     public void stopRecording() {
         if (!isRecording) return;
         try {
-            mediaRecorder.stop();
-            mediaRecorder.release();
-            mediaRecorder = null;
+            if (mediaRecorder != null) {
+                mediaRecorder.stop();
+                mediaRecorder.release();
+                mediaRecorder = null;
+            }
             isRecording = false;
             long duration = System.currentTimeMillis() - recordStartTime;
-            if (listener != null) listener.onRecordingCompleted(recordingFile.getAbsolutePath(), duration);
+            
+            mainHandler.post(() -> {
+                if (listener != null) {
+                    listener.onRecordingCompleted(recordingFile.getAbsolutePath(), duration);
+                }
+            });
         } catch (Exception e) {
-            if (listener != null) listener.onRecordingError(e.getMessage());
+            mainHandler.post(() -> {
+                if (listener != null) listener.onRecordingError(e.getMessage());
+            });
         }
     }
     
     private File createAudioFile() {
-        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-        String fileName = "voice_" + timestamp + ".m4a";
-        File recordingsDir = new File(context.getExternalFilesDir(null), "voice_recordings");
-        if (!recordingsDir.exists()) recordingsDir.mkdirs();
-        return new File(recordingsDir, fileName);
+        St     
+            mainHandler.post(() -> {
+                if (listener != null) {
+                    listener.onRecordingCompleted(recordingFile.getAbsolutePath(), duration);
+                }
+            });
+        } catch (Exception e) {
+            mainHandler.post(() -> {
+                if (listener != null) listener.onRecosDir, fileName);
     }
     
     public boolean isRecording() { return isRecording; }
